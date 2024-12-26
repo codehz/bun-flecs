@@ -1,0 +1,16 @@
+{
+  "name": "@codehz/flecs",
+  "version": "0.0.2",
+  "module": "index.ts",
+  "type": "module",
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "scripts": {
+    "postinstall": "make -s"
+  },
+  "dependencies": {}
+}
