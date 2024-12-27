@@ -91,7 +91,8 @@ export class Entity {
     return symbols.ecs_exists(this.world, this.native);
   }
 
-  get(id: bigint, mode: GetIdMode = 0) {
+  get(id: bigint | Entity, mode: GetIdMode = 0) {
+    id = typeof id === "bigint" ? id : id.native;
     switch (mode) {
       case GetIdMode.DEFAULT:
         return symbols.ecs_get_id(this.world, this.native, id);
