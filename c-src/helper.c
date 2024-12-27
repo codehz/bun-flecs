@@ -76,6 +76,16 @@ napi_value ecs_entity_str_js(napi_env env, ecs_world_t const *world,
   return result;
 }
 
+napi_value ecs_entity_to_json_js(napi_env env, ecs_world_t const *world,
+                              ecs_entity_t entity) {
+  ecs_entity_to_json_desc_t desc = ECS_ENTITY_TO_JSON_INIT;
+  char *str = ecs_entity_to_json(world, entity, &desc);
+  napi_value result;
+  napi_create_string_utf8(env, str, NAPI_AUTO_LENGTH, &result);
+  ecs_os_free(str);
+  return result;
+}
+
 napi_value ecs_get_name_js(napi_env env, ecs_world_t const *world,
                            ecs_entity_t entity) {
   char const *str = ecs_get_name(world, entity);
@@ -236,7 +246,8 @@ static napi_value jsChildrenNext(napi_env env, napi_callback_info info) {
   napi_value result;
   ecs_iter_t *iter;
   napi_get_cb_info(env, info, &(size_t){0}, NULL, NULL, (void **)&iter);
-  if (!iter) return napi_throw_error(env, NULL, "Invalid iterator");
+  if (!iter)
+    return napi_throw_error(env, NULL, "Invalid iterator");
   if (ecs_children_next(iter)) {
     napi_create_array_with_length(env, iter->count, &result);
     for (int i = 0; i < iter->count; i++) {
@@ -254,7 +265,8 @@ static napi_value jsChildrenDone(napi_env env, napi_callback_info info) {
   napi_value result;
   ecs_iter_t *iter = NULL;
   napi_get_cb_info(env, info, &(size_t){0}, NULL, NULL, (void **)&iter);
-  if (!iter) return napi_throw_error(env, NULL, "Invalid iterator");
+  if (!iter)
+    return napi_throw_error(env, NULL, "Invalid iterator");
   ecs_iter_fini(iter);
   ecs_os_free(iter);
   return result;

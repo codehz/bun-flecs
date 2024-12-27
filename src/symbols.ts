@@ -32,6 +32,10 @@ const { symbols } = dlopen(lib, {
     args: ["napi_env", "ptr", "u64"],
     returns: "napi_value",
   },
+  ecs_entity_to_json_js: {
+    args: ["napi_env", "ptr", "u64"],
+    returns: "napi_value",
+  },
   ecs_has_id: { args: ["ptr", "u64", "u64"], returns: "bool" },
   ecs_owns_id: { args: ["ptr", "u64", "u64"], returns: "bool" },
   ecs_get_parent: { args: ["ptr", "u64"], returns: "u64" },

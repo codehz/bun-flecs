@@ -134,6 +134,12 @@ export class Entity {
     return symbols.ecs_entity_str_js(null, this.world, this.native) as string;
   }
 
+  toJSON() {
+    return JSON.parse(
+      symbols.ecs_entity_to_json_js(null, this.world, this.native) as string
+    );
+  }
+
   get parent(): Entity | null {
     const id = symbols.ecs_get_parent(this.world, this.native);
     if (id) {

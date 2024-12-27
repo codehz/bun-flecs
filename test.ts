@@ -41,7 +41,7 @@ a {
 `);
 
 
-console.log(entity.toString(), entity.type().map(x => x.toString()))
+console.log(entity.toString(), entity.type().map(x => x.toJSON()))
 
 
 const a = world.lookup("a")!;
@@ -49,12 +49,12 @@ const a = world.lookup("a")!;
 console.log(a?.toString())
 
 for (const child of a.children) {
-  console.log(child.toString())
+  console.log(child.toJSON())
 }
 
 const q = world.query("Position, Position(up)");
 
-console.log(Bun.inspect(q.iter(), {depth: 100}))
+console.log(Bun.inspect(q.iter(), {depth: 100, colors: true}))
 
 using script = world.parse(`
 d {
@@ -65,4 +65,4 @@ script.eval({mass: 5, tag: "tag"})
 
 const d = world.lookup("d")!;
 
-console.log(d?.toString())
+console.log(d?.toJSON())
