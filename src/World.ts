@@ -77,28 +77,28 @@ export class World {
       utf8(name),
       utf8(code)
     ) as {
-      eval(
-        vars?: Record<string, boolean | number | string>
-      ): void;
+      eval(vars?: Record<string, boolean | number | string>): void;
       [Symbol.dispose](): void;
     };
   }
 
   query(expr: string) {
     const raw = symbols.ecs_query_expr_js(null, this.native, utf8(expr)) as {
-      iter(): string;
-      table(): string;
+      exec(opt: any): string;
+      [Symbol.dispose](): void;
     };
     return {
-      iter<T>() {
-        const parsed = JSON.parse(raw.iter()) as {
-          results: { parent: string; name: string; fields: T }[];
-        };
-        return parsed.results;
+      exec<T extends unknown>(options?: {
+        variables?: Record<string, string | bigint | Entity>;
+        table?: boolean;
+        builtin?: boolean;
+        inherited?: boolean;
+        matches?: boolean;
+      }): T[] {
+        return JSON.parse(raw.exec(options)).results;
       },
-      table() {
-        const parsed = JSON.parse(raw.table()) as { results: any[] };
-        return parsed.results;
+      [Symbol.dispose]() {
+        return raw[Symbol.dispose]();
       },
     };
   }

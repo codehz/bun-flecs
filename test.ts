@@ -52,9 +52,9 @@ for (const child of a.children) {
   console.log(child.toJSON())
 }
 
-const q = world.query("Position, Position(up)");
+const q = world.query("$comp, $comp(up)");
 
-console.log(Bun.inspect(q.iter(), {depth: 100, colors: true}))
+console.log(Bun.inspect(q.exec({variables: {comp: "Position"}, matches: true, builtin: true}), {depth: 100, colors: true}))
 
 using script = world.parse(`
 d {
