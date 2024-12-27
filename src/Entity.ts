@@ -36,30 +36,47 @@ export class Entity {
     else return null;
   }
 
-  add(id: bigint) {
-    symbols.ecs_add_id(this.world, this.native, id);
+  add(id: bigint | Entity) {
+    symbols.ecs_add_id(
+      this.world,
+      this.native,
+      typeof id === "bigint" ? id : id.native
+    );
   }
 
-  remove(id: bigint) {
-    symbols.ecs_remove_id(this.world, this.native, id);
+  remove(id: bigint | Entity) {
+    symbols.ecs_remove_id(
+      this.world,
+      this.native,
+      typeof id === "bigint" ? id : id.native
+    );
   }
 
   clear() {
     symbols.ecs_clear(this.world, this.native);
   }
 
-  enable(id: bigint, enabled: boolean): void;
+  enable(id: bigint | Entity, enabled: boolean): void;
   enable(enabled: boolean): void;
   enable(a: any, b?: any) {
     if (b == null) {
       symbols.ecs_enable(this.world, this.native, a);
     } else {
-      symbols.ecs_enable_id(this.world, this.native, a, b);
+      symbols.ecs_enable_id(
+        this.world,
+        this.native,
+        typeof a === "bigint" ? a : a.native,
+        b
+      );
     }
   }
 
-  isEnabled(id: bigint) {
-    return symbols.ecs_is_enabled_id(this.world, this.native, id);
+  isEnabled(id: bigint | Entity) {
+    return symbols.ecs_is_enabled_id(
+      this.world,
+      this.native,
+      typeof id === "bigint" ? id : id.native
+    );
   }
 
   isValid() {
@@ -90,12 +107,20 @@ export class Entity {
     throw new Error("invalid mode: " + mode);
   }
 
-  has(id: bigint) {
-    return symbols.ecs_has_id(this.world, this.native, id);
+  has(id: bigint | Entity) {
+    return symbols.ecs_has_id(
+      this.world,
+      this.native,
+      typeof id === "bigint" ? id : id.native
+    );
   }
 
-  owns(id: bigint) {
-    return symbols.ecs_owns_id(this.world, this.native, id);
+  owns(id: bigint | Entity) {
+    return symbols.ecs_owns_id(
+      this.world,
+      this.native,
+      typeof id === "bigint" ? id : id.native
+    );
   }
 
   type() {
