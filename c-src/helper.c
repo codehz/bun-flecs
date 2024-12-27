@@ -1,5 +1,46 @@
 #include "./flecs.h"
 #include "./js_native_api.h"
+#include "./js_native_api_types.h"
+
+#define TRY_(expr, label)                                                      \
+  if ((status = expr) != napi_ok)                                              \
+  goto label
+#define TRY0(expr)                                                             \
+  if ((status = expr) != napi_ok)                                              \
+  return status
+
+typedef struct allocpool {
+  struct allocpool *prev;
+  size_t used, length;
+  char buffer[];
+} *allocpool_t, **allocpool_ref_t;
+
+static size_t nextsize(size_t size) {
+  size_t power = 4096;
+  while (power < size)
+    power *= 2;
+  return power;
+}
+
+static void *allocpool_alloc(allocpool_ref_t ppool, size_t size) {
+  if (!*ppool || size > (*ppool)->length - (*ppool)->used) {
+    size_t alloc = nextsize(size + sizeof(allocpool_t));
+    allocpool_t pool = ecs_os_malloc(alloc);
+    pool->prev = *ppool;
+    *ppool = pool;
+  }
+  void *result = (*ppool)->buffer + (*ppool)->used;
+  (*ppool)->used += size;
+  return result;
+}
+
+static void allocpool_fini(allocpool_t pool) {
+  while (pool) {
+    allocpool_t temp = pool;
+    pool = pool->prev;
+    ecs_os_free(temp);
+  }
+}
 
 ecs_entity_t ecs_script_init_code(ecs_world_t *world, char const *code) {
   return ecs_script(world, {.code = code});
@@ -364,5 +405,131 @@ napi_value ecs_query_expr_js(napi_env env, ecs_world_t *world,
                        &fn);
   napi_set_named_property(env, result, "args_parse", fn);
   napi_add_finalizer(env, result, query, freeQuery, NULL, NULL);
+  return result;
+}
+
+static napi_status jsSymbolDispose(napi_env env, napi_value *target) {
+  return napi_get_global(env, target) ||
+         napi_get_named_property(env, *target, "Symbol", target) ||
+         napi_get_named_property(env, *target, "dispose", target);
+}
+
+static napi_status jsValueToEcsVar(napi_env env, ecs_script_vars_t *vars,
+                                   char *name, napi_value value) {
+  napi_status status = napi_ok;
+  napi_valuetype type;
+  ecs_script_var_t *var;
+
+  TRY0(napi_typeof(env, value, &type));
+  switch (type) {
+  case napi_boolean:
+    var = ecs_script_vars_define(vars, name, ecs_bool_t);
+    TRY0(napi_get_value_bool(env, value, var->value.ptr));
+    break;
+  case napi_number:
+    var = ecs_script_vars_define(vars, name, ecs_f64_t);
+    TRY0(napi_get_value_double(env, value, var->value.ptr));
+    break;
+  case napi_string: {
+    var = ecs_script_vars_define(vars, name, ecs_string_t);
+    size_t valuelen = 0;
+    TRY0(napi_get_value_string_utf8(env, value, NULL, 0, &valuelen));
+    char *str = *(char **)var->value.ptr = ecs_os_malloc_n(char, valuelen + 1);
+    TRY0(napi_get_value_string_utf8(env, value, str, valuelen + 1, &valuelen));
+  } break;
+  default:
+    break;
+  }
+
+  return status;
+}
+
+static napi_status jsObjectToEcsVars(napi_env env, ecs_script_vars_t *vars,
+                                     napi_value object, allocpool_ref_t ppool) {
+  napi_status status = napi_ok;
+  napi_value properties;
+  napi_get_property_names(env, object, &properties);
+  uint32_t length = 0;
+  napi_get_array_length(env, properties, &length);
+  for (int i = 0; i < length; i++) {
+    napi_handle_scope scope;
+    char *keybuf = 0;
+    napi_open_handle_scope(env, &scope);
+
+#define TRY(expr) TRY_(expr, loop_error)
+
+    napi_value key, value;
+    TRY(napi_get_element(env, properties, i, &key));
+    TRY(napi_get_property(env, object, key, &value));
+
+    size_t keylen = 0;
+    TRY(napi_get_value_string_utf8(env, key, NULL, 0, &keylen));
+
+    keybuf = allocpool_alloc(ppool, keylen + 1);
+    TRY(napi_get_value_string_utf8(env, key, keybuf, keylen + 1, &keylen));
+
+    TRY(jsValueToEcsVar(env, vars, keybuf, value));
+
+#undef TRY
+
+  loop_error:
+    napi_close_handle_scope(env, scope);
+    if (status)
+      return status;
+  }
+  return status;
+}
+
+static napi_value evalScript(napi_env env, napi_callback_info info) {
+  allocpool_t pool = NULL;
+  napi_value result;
+  ecs_script_t *script;
+  size_t argc = 1;
+  napi_value vars;
+  if (napi_get_cb_info(env, info, &argc, &vars, NULL, (void **)&script))
+    return napi_throw_error(env, NULL, "failed to get callback info");
+  ecs_script_eval_desc_t desc = {};
+  if (argc == 1) {
+    desc.vars = ecs_script_vars_init(script->world);
+    napi_status status = jsObjectToEcsVars(env, desc.vars, vars, &pool);
+  }
+  int script_result = ecs_script_eval(script, &desc);
+  if (desc.vars) {
+    ecs_script_vars_fini(desc.vars);
+  }
+  if (pool) {
+    allocpool_fini(pool);
+  }
+  if (script_result) {
+    return napi_throw_error(env, NULL, "eval error");
+  }
+  napi_get_undefined(env, &result);
+  return result;
+}
+
+static napi_value disposeScript(napi_env env, napi_callback_info info) {
+  napi_value result;
+  ecs_script_t *script;
+  if (napi_get_cb_info(env, info, &(size_t){0}, NULL, NULL, (void **)&script))
+    return napi_throw_error(env, NULL, "failed to get callback info");
+  ecs_script_free(script);
+  napi_get_undefined(env, &result);
+  return result;
+}
+
+napi_value ecs_script_parse_js(napi_env env, ecs_world_t *world, char *name,
+                               char *code) {
+  napi_value result, dispose, fn;
+  ecs_script_t *script = ecs_script_parse(world, name, code, NULL);
+  if (!script) {
+    return napi_throw_error(env, NULL, "failed to parse code");
+  }
+  if (napi_create_object(env, &result) || jsSymbolDispose(env, &dispose) ||
+      napi_create_function(env, "eval", 1, evalScript, script, &fn) ||
+      napi_set_named_property(env, result, "eval", fn) ||
+      napi_create_function(env, "dispose", 1, disposeScript, script, &fn) ||
+      napi_set_property(env, result, dispose, fn) != napi_ok) {
+    return napi_throw_error(env, NULL, "failed to create object");
+  }
   return result;
 }

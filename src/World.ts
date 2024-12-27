@@ -70,6 +70,20 @@ export class World {
     else return null;
   }
 
+  parse(code: string, name = "<input>") {
+    return symbols.ecs_script_parse_js(
+      null,
+      this.native,
+      utf8(name),
+      utf8(code)
+    ) as {
+      eval(
+        vars?: Record<string, boolean | number | string>
+      ): void;
+      [Symbol.dispose](): void;
+    };
+  }
+
   query(expr: string) {
     const raw = symbols.ecs_query_expr_js(null, this.native, utf8(expr)) as {
       iter(): string;

@@ -26,6 +26,9 @@ class Mass {
 using world = new World();
 
 const entity = world.new_scripted(`
+struct NameTag {
+  value: string
+}
 a {
   Position: { x: 0.1, y: 0.2 }
   b {
@@ -42,7 +45,7 @@ a {
 
 
 console.log(entity.toString())
-// console.log(Iterator.from(entity.children()).toArray())
+
 
 const a = world.lookup("a")!;
 
@@ -55,3 +58,14 @@ for (const child of a.children) {
 const q = world.query("Position, Position(up)");
 
 console.log(Bun.inspect(q.iter(), {depth: 100}))
+
+using script = world.parse(`
+d {
+  Mass: { value: $mass }
+  string: { $tag }
+}`);
+script.eval({mass: 5, tag: "tag"})
+
+const d = world.lookup("d")!;
+
+console.log(d?.toString())
