@@ -25,7 +25,7 @@ static size_t nextsize(size_t size) {
 static void *allocpool_alloc(allocpool_ref_t ppool, size_t size) {
   if (!*ppool || size > (*ppool)->length - (*ppool)->used) {
     size_t alloc = nextsize(size + sizeof(allocpool_t));
-    allocpool_t pool = ecs_os_malloc(alloc);
+    allocpool_t pool = ecs_os_calloc(alloc);
     pool->prev = *ppool;
     *ppool = pool;
   }
