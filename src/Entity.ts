@@ -99,7 +99,9 @@ export class Entity {
   }
 
   type() {
-    return symbols.ecs_get_type_js(null, this.world, this.native) as bigint[];
+    return (
+      symbols.ecs_get_type_js(null, this.world, this.native) as bigint[]
+    ).map((id) => new Entity(this.world, id));
   }
 
   toString() {

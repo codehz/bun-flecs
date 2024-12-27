@@ -41,7 +41,7 @@ a {
 `);
 
 
-console.log(entity.toString())
+console.log(entity.toString(), entity.type().map(x => x.toString()))
 
 
 const a = world.lookup("a")!;
