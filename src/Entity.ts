@@ -115,12 +115,11 @@ export class Entity {
   }
 
   get children(): IteratorObject<Entity> {
-    const next = symbols.ecs_children_js(
-      null,
-      this.world,
-      this.native
-    ) as () => bigint[] | undefined;
-    return new EntityIter(this.world, next);
+    const iterator = symbols.ecs_children_js(null, this.world, this.native) as {
+      next(): bigint[] | undefined;
+      done(): void;
+    };
+    return new EntityIter(this.world, iterator);
   }
 
   [Symbol.dispose]() {
@@ -130,30 +129,39 @@ export class Entity {
 
 class EntityIter extends Iterator<Entity> {
   #world: Pointer;
-  #next_array: () => bigint[] | undefined;
+  #raw: {
+    next(): bigint[] | undefined;
+    done(): void;
+  };
   #buffer: Entity[] = [];
-  constructor(world: Pointer, next_array: () => bigint[] | undefined) {
+  constructor(
+    world: Pointer,
+    raw: {
+      next(): bigint[] | undefined;
+      done(): void;
+    }
+  ) {
     super();
     this.#world = world;
-    this.#next_array = next_array;
+    this.#raw = raw;
   }
   next(): IteratorResult<Entity, any> {
     if (this.#buffer.length) {
       return { done: false, value: this.#buffer.shift()! };
     }
-    const array = this.#next_array();
+    const array = this.#raw.next();
     if (!array) return { done: true, value: undefined };
     this.#buffer = array.map((item) => new Entity(this.#world, item));
     return this.next();
   }
 
   throw(): IteratorResult<Entity, any> {
-    this.#next_array = () => void 0;
+    this.#raw.done();
     return { done: true, value: undefined };
   }
 
   return(): IteratorResult<Entity, any> {
-    this.#next_array = () => void 0;
+    this.#raw.done();
     return { done: true, value: undefined };
   }
 }

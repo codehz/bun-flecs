@@ -26,9 +26,6 @@ class Mass {
 using world = new World();
 
 const entity = world.new_scripted(`
-struct NameTag {
-  value: string
-}
 a {
   Position: { x: 0.1, y: 0.2 }
   b {

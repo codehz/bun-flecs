@@ -42,6 +42,14 @@ static void allocpool_fini(allocpool_t pool) {
   }
 }
 
+static napi_status jsSymbolDispose(napi_env env, napi_value *target) {
+  napi_status status;
+  TRY0(napi_get_global(env, target));
+  TRY0(napi_get_named_property(env, *target, "Symbol", target));
+  TRY0(napi_get_named_property(env, *target, "dispose", target));
+  return napi_ok;
+}
+
 ecs_entity_t ecs_script_init_code(ecs_world_t *world, char const *code) {
   return ecs_script(world, {.code = code});
 }
@@ -224,10 +232,11 @@ napi_value get_bindings(napi_env env) {
   return result;
 }
 
-static napi_value ecsChildrenNext(napi_env env, napi_callback_info info) {
+static napi_value jsChildrenNext(napi_env env, napi_callback_info info) {
   napi_value result;
   ecs_iter_t *iter;
   napi_get_cb_info(env, info, &(size_t){0}, NULL, NULL, (void **)&iter);
+  if (!iter) return napi_throw_error(env, NULL, "Invalid iterator");
   if (ecs_children_next(iter)) {
     napi_create_array_with_length(env, iter->count, &result);
     for (int i = 0; i < iter->count; i++) {
@@ -241,6 +250,16 @@ static napi_value ecsChildrenNext(napi_env env, napi_callback_info info) {
   return result;
 }
 
+static napi_value jsChildrenDone(napi_env env, napi_callback_info info) {
+  napi_value result;
+  ecs_iter_t *iter = NULL;
+  napi_get_cb_info(env, info, &(size_t){0}, NULL, NULL, (void **)&iter);
+  if (!iter) return napi_throw_error(env, NULL, "Invalid iterator");
+  ecs_iter_fini(iter);
+  ecs_os_free(iter);
+  return result;
+}
+
 static void freeIter(napi_env env, void *data, void *hint) {
   ecs_iter_fini(data);
   ecs_os_free(data);
@@ -248,12 +267,14 @@ static void freeIter(napi_env env, void *data, void *hint) {
 
 napi_value ecs_children_js(napi_env env, const ecs_world_t *world,
                            ecs_entity_t parent) {
-  napi_value result;
+  napi_value result, fn;
   ecs_iter_t *iter = ecs_os_malloc_t(ecs_iter_t);
   *iter = ecs_children(world, parent);
-  napi_create_function(env, "ecs_children_next", 0, ecsChildrenNext, iter,
-                       &result);
-  napi_add_finalizer(env, result, iter, freeIter, NULL, NULL);
+  napi_create_object(env, &result);
+  napi_create_function(env, "next", 0, jsChildrenNext, iter, &fn);
+  napi_set_named_property(env, result, "next", fn);
+  napi_create_function(env, "done", 0, jsChildrenDone, iter, &fn);
+  napi_set_named_property(env, result, "done", fn);
   return result;
 }
 
@@ -266,85 +287,6 @@ static napi_value ecsQueryIter(napi_env env, napi_callback_info info) {
   char *str = ecs_iter_to_json(&iter, &desc);
   napi_create_string_utf8(env, str, NAPI_AUTO_LENGTH, &result);
   ecs_os_free(str);
-  return result;
-}
-
-static napi_value ecsQueryTable(napi_env env, napi_callback_info info) {
-  napi_value result;
-  ecs_query_t *query;
-  napi_get_cb_info(env, info, &(size_t){0}, NULL, NULL, (void **)&query);
-  ecs_iter_t iter = ecs_query_iter(query->world, query);
-  ecs_iter_to_json_desc_t desc = ECS_ITER_TO_JSON_INIT;
-  desc.serialize_table = true;
-  char *str = ecs_iter_to_json(&iter, &desc);
-  napi_create_string_utf8(env, str, NAPI_AUTO_LENGTH, &result);
-  ecs_os_free(str);
-  return result;
-}
-
-static napi_value ecsQueryStr(napi_env env, napi_callback_info info) {
-  napi_value result;
-  ecs_query_t *query;
-  napi_get_cb_info(env, info, &(size_t){0}, NULL, NULL, (void **)&query);
-  char *str = ecs_query_str(query);
-  napi_create_string_utf8(env, str, NAPI_AUTO_LENGTH, &result);
-  ecs_os_free(str);
-  return result;
-}
-
-static napi_value ecsQueryPlan(napi_env env, napi_callback_info info) {
-  napi_value result;
-  ecs_query_t *query;
-  napi_get_cb_info(env, info, &(size_t){0}, NULL, NULL, (void **)&query);
-  char *str = ecs_query_plan(query);
-  napi_create_string_utf8(env, str, NAPI_AUTO_LENGTH, &result);
-  ecs_os_free(str);
-  return result;
-}
-
-static napi_value ecsQueryFindVar(napi_env env, napi_callback_info info) {
-  napi_value result, name_;
-  ecs_query_t *query;
-  size_t argc = 1;
-  napi_get_cb_info(env, info, &argc, &name_, NULL, (void **)&query);
-  size_t namelen = 0;
-  napi_status status =
-      napi_get_value_string_utf8(env, name_, NULL, 0, &namelen);
-  if (status != napi_ok || namelen <= 0)
-    return napi_throw_error(env, NULL, "invalid name");
-  char *name = ecs_os_malloc_n(char, namelen + 1);
-  napi_get_value_string_utf8(env, name_, name, namelen + 1, &namelen);
-  int32_t id = ecs_query_find_var(query, name);
-  ecs_os_free(name);
-  napi_create_int32(env, id, &result);
-  return result;
-}
-
-static napi_value ecsQueryVarName(napi_env env, napi_callback_info info) {
-  napi_value result, var_id_;
-  ecs_query_t *query;
-  size_t argc = 1;
-  napi_get_cb_info(env, info, &argc, &var_id_, NULL, (void **)&query);
-  int32_t var_id;
-  napi_status status = napi_get_value_int32(env, var_id_, &var_id);
-  if (status != napi_ok)
-    return napi_throw_error(env, NULL, "invalid var id");
-  char const *name = ecs_query_var_name(query, var_id);
-  napi_create_string_utf8(env, name, NAPI_AUTO_LENGTH, &result);
-  return result;
-}
-
-static napi_value ecsQueryVarIsEntity(napi_env env, napi_callback_info info) {
-  napi_value result, var_id_;
-  ecs_query_t *query;
-  size_t argc = 1;
-  napi_get_cb_info(env, info, &argc, &var_id_, NULL, (void **)&query);
-  int32_t var_id;
-  napi_status status = napi_get_value_int32(env, var_id_, &var_id);
-  if (status != napi_ok)
-    return napi_throw_error(env, NULL, "invalid var id");
-  bool is_entity = ecs_query_var_is_entity(query, var_id);
-  napi_get_boolean(env, is_entity, &result);
   return result;
 }
 
@@ -386,32 +328,8 @@ napi_value ecs_query_expr_js(napi_env env, ecs_world_t *world,
   napi_create_object(env, &result);
   napi_create_function(env, "ecs_query_iter", 0, ecsQueryIter, query, &fn);
   napi_set_named_property(env, result, "iter", fn);
-  napi_create_function(env, "ecs_query_table", 0, ecsQueryTable, query, &fn);
-  napi_set_named_property(env, result, "table", fn);
-  napi_create_function(env, "ecs_query_str", 0, ecsQueryStr, query, &fn);
-  napi_set_named_property(env, result, "str", fn);
-  napi_create_function(env, "ecs_query_plan", 0, ecsQueryPlan, query, &fn);
-  napi_set_named_property(env, result, "plan", fn);
-  napi_create_function(env, "ecs_query_find_var", 1, ecsQueryFindVar, query,
-                       &fn);
-  napi_set_named_property(env, result, "find_var", fn);
-  napi_create_function(env, "ecs_query_var_name", 1, ecsQueryVarName, query,
-                       &fn);
-  napi_set_named_property(env, result, "var_name", fn);
-  napi_create_function(env, "ecs_query_var_is_entity", 1, ecsQueryVarIsEntity,
-                       query, &fn);
-  napi_set_named_property(env, result, "var_is_entity", fn);
-  napi_create_function(env, "ecs_query_args_parse", 1, ecsQueryArgsParse, query,
-                       &fn);
-  napi_set_named_property(env, result, "args_parse", fn);
   napi_add_finalizer(env, result, query, freeQuery, NULL, NULL);
   return result;
-}
-
-static napi_status jsSymbolDispose(napi_env env, napi_value *target) {
-  return napi_get_global(env, target) ||
-         napi_get_named_property(env, *target, "Symbol", target) ||
-         napi_get_named_property(env, *target, "dispose", target);
 }
 
 static napi_status jsValueToEcsVar(napi_env env, ecs_script_vars_t *vars,
