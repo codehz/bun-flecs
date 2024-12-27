@@ -3,3 +3,4 @@ bun.lock
 bunfig.toml
 update.ts
 test.ts
+.vscode
