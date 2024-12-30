@@ -4,6 +4,22 @@ import { ScriptedEntity } from "./ScriptedEntity";
 import symbols from "./symbols";
 import { utf8 } from "./utils";
 
+export type Script = {
+  eval(vars?: Record<string, boolean | number | string>): void;
+  [Symbol.dispose](): void;
+};
+
+export type Query = {
+  exec<T extends unknown>(options?: {
+    variables?: Record<string, string | bigint | Entity>;
+    table?: boolean;
+    builtin?: boolean;
+    inherited?: boolean;
+    matches?: boolean;
+  }): T[];
+  [Symbol.dispose](): void;
+};
+
 export class World {
   readonly native = symbols.ecs_init()!;
   constructor() {
@@ -70,31 +86,22 @@ export class World {
     else return null;
   }
 
-  parse(code: string, name = "<input>") {
+  parse(code: string, name = "<input>"): Script {
     return symbols.ecs_script_parse_js(
       null,
       this.native,
       utf8(name),
       utf8(code)
-    ) as {
-      eval(vars?: Record<string, boolean | number | string>): void;
-      [Symbol.dispose](): void;
-    };
+    ) as Script;
   }
 
-  query(expr: string) {
+  query(expr: string): Query {
     const raw = symbols.ecs_query_expr_js(null, this.native, utf8(expr)) as {
       exec(opt: any): string;
       [Symbol.dispose](): void;
     };
     return {
-      exec<T extends unknown>(options?: {
-        variables?: Record<string, string | bigint | Entity>;
-        table?: boolean;
-        builtin?: boolean;
-        inherited?: boolean;
-        matches?: boolean;
-      }): T[] {
+      exec(options?: any): any[] {
         return JSON.parse(raw.exec(options)).results;
       },
       [Symbol.dispose]() {
