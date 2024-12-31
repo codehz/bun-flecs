@@ -73,11 +73,6 @@ const { symbols } = dlopen(lib, {
     args: ["napi_env", "ptr", "cstring", "cstring"],
     returns: "napi_value",
   },
-
-  ecs_populate_primitive_types_js: {
-    args: ["napi_env"],
-    returns: "napi_value",
-  },
 } as const);
 
 export default symbols;
