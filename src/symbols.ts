@@ -78,15 +78,6 @@ const { symbols } = dlopen(lib, {
     args: ["napi_env"],
     returns: "napi_value",
   },
-  get_bindings: { args: ["napi_env"], returns: "napi_value" },
 } as const);
 
-const bindings = symbols.get_bindings(null) as {
-  bindings_create_type(
-    world: Pointer,
-    entity: bigint,
-    definition: unknown
-  ): bigint;
-};
-
-export default { ...symbols, ...bindings };
+export default symbols;

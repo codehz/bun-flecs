@@ -1,29 +1,20 @@
-import { Member, Struct, World } from ".";
-
-
-@Struct()
-class Position{
-  @Member("f64")
-  x: number = 0;
-  @Member("f64")
-  y: number = 0;
-}
-
-@Struct()
-class Velocity{
-  @Member("f32")
-  x: number = 0;
-  @Member("f32")
-  y: number = 0;
-}
-
-@Struct()
-class Mass {
-  @Member("f32")
-  value: number = 0;
-}
+import { World } from ".";
 
 using world = new World();
+
+world.parse(`
+struct Position {
+  x = f64
+  y = f64
+}
+struct Velocity {
+  x = f32
+  y = f32
+}
+struct Mass {
+  value = f32
+}
+`).eval()
 
 const entity = world.new_scripted(`
 a {
