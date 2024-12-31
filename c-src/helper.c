@@ -116,8 +116,10 @@ static napi_value jsChildrenNext(napi_env env, napi_callback_info info) {
   napi_value result;
   ecs_iter_t *iter;
   napi_get_cb_info(env, info, &(size_t){0}, NULL, NULL, (void **)&iter);
-  if (!iter)
-    return napi_throw_error(env, NULL, "Invalid iterator");
+  if (!iter) {
+    napi_throw_error(env, NULL, "Invalid iterator");
+    return NULL;
+  }
   if (ecs_children_next(iter)) {
     napi_create_array_with_length(env, iter->count, &result);
     for (int i = 0; i < iter->count; i++) {
@@ -135,16 +137,14 @@ static napi_value jsChildrenDone(napi_env env, napi_callback_info info) {
   napi_value result;
   ecs_iter_t *iter = NULL;
   napi_get_cb_info(env, info, &(size_t){0}, NULL, NULL, (void **)&iter);
-  if (!iter)
-    return napi_throw_error(env, NULL, "Invalid iterator");
+  if (!iter) {
+    napi_throw_error(env, NULL, "Invalid iterator");
+    return NULL;
+  }
+  napi_get_undefined(env, &result);
   ecs_iter_fini(iter);
   ecs_os_free(iter);
   return result;
-}
-
-static void freeIter(napi_env env, void *data, void *hint) {
-  ecs_iter_fini(data);
-  ecs_os_free(data);
 }
 
 napi_value ecs_children_js(napi_env env, const ecs_world_t *world,
@@ -258,13 +258,15 @@ napi_value ecs_query_expr_js(napi_env env, ecs_world_t *world,
   napi_value result, fn, dispose;
   ecs_query_t *query = ecs_query(world, {.expr = expr});
   if (!query) {
-    return napi_throw_error(env, NULL, "Query failed");
+    napi_throw_error(env, NULL, "Query failed");
+    return NULL;
   }
   jsSymbolDispose(env, &dispose);
   napi_create_object(env, &result);
   napi_create_function(env, "ecs_query_exec", 0, ecsQueryExec, query, &fn);
   napi_set_named_property(env, result, "exec", fn);
-  napi_create_function(env, "ecs_query_dispose", 0, ecsQueryDispose, query, &fn);
+  napi_create_function(env, "ecs_query_dispose", 0, ecsQueryDispose, query,
+                       &fn);
   napi_set_property(env, result, dispose, fn);
   return result;
 }
@@ -341,12 +343,18 @@ static napi_value evalScript(napi_env env, napi_callback_info info) {
   ecs_script_t *script;
   size_t argc = 1;
   napi_value vars;
-  if (napi_get_cb_info(env, info, &argc, &vars, NULL, (void **)&script))
-    return napi_throw_error(env, NULL, "failed to get callback info");
+  if (napi_get_cb_info(env, info, &argc, &vars, NULL, (void **)&script)) {
+    napi_throw_error(env, NULL, "failed to get callback info");
+    return NULL;
+  }
   ecs_script_eval_desc_t desc = {};
   if (argc == 1) {
     desc.vars = ecs_script_vars_init(script->world);
     napi_status status = jsObjectToEcsVars(env, desc.vars, vars, &pool);
+    if (status != napi_ok) {
+      napi_throw_error(env, NULL, "failed to convert flecs vars");
+      return NULL;
+    }
   }
   int script_result = ecs_script_eval(script, &desc);
   if (desc.vars) {
@@ -356,7 +364,8 @@ static napi_value evalScript(napi_env env, napi_callback_info info) {
     allocpool_fini(pool);
   }
   if (script_result) {
-    return napi_throw_error(env, NULL, "eval error");
+    napi_throw_error(env, NULL, "eval error");
+    return NULL;
   }
   napi_get_undefined(env, &result);
   return result;
@@ -365,8 +374,10 @@ static napi_value evalScript(napi_env env, napi_callback_info info) {
 static napi_value disposeScript(napi_env env, napi_callback_info info) {
   napi_value result;
   ecs_script_t *script;
-  if (napi_get_cb_info(env, info, &(size_t){0}, NULL, NULL, (void **)&script))
-    return napi_throw_error(env, NULL, "failed to get callback info");
+  if (napi_get_cb_info(env, info, &(size_t){0}, NULL, NULL, (void **)&script)) {
+    napi_throw_error(env, NULL, "failed to get callback info");
+    return NULL;
+  }
   ecs_script_free(script);
   napi_get_undefined(env, &result);
   return result;
@@ -377,14 +388,16 @@ napi_value ecs_script_parse_js(napi_env env, ecs_world_t *world, char *name,
   napi_value result, dispose, fn;
   ecs_script_t *script = ecs_script_parse(world, name, code, NULL);
   if (!script) {
-    return napi_throw_error(env, NULL, "failed to parse code");
+    napi_throw_error(env, NULL, "failed to parse code");
+    return NULL;
   }
   if (napi_create_object(env, &result) || jsSymbolDispose(env, &dispose) ||
       napi_create_function(env, "eval", 1, evalScript, script, &fn) ||
       napi_set_named_property(env, result, "eval", fn) ||
       napi_create_function(env, "dispose", 1, disposeScript, script, &fn) ||
       napi_set_property(env, result, dispose, fn) != napi_ok) {
-    return napi_throw_error(env, NULL, "failed to create object");
+    napi_throw_error(env, NULL, "failed to create object");
+    return NULL;
   }
   return result;
 }
