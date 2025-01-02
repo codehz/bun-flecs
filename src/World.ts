@@ -91,6 +91,7 @@ export class World {
     parent?: string;
     name?: string;
     id: number;
+    tags?: string[];
     pairs?: Record<string, string>;
     components?: Record<string, any>;
   }[] {
