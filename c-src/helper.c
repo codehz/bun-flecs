@@ -401,3 +401,11 @@ napi_value ecs_script_parse_js(napi_env env, ecs_world_t *world, char *name,
   }
   return result;
 }
+
+napi_value ecs_world_to_json_js(napi_env env, ecs_world_t *world) {
+  ecs_world_to_json_desc_t desc = {};
+  char *json = ecs_world_to_json(world, &desc);
+  napi_value result;
+  napi_create_string_utf8(env, json, NAPI_AUTO_LENGTH, &result);
+  return result;
+}

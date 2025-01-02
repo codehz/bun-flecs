@@ -57,3 +57,5 @@ script.eval({mass: 5, tag: "tag"})
 const d = world.lookup("d")!;
 
 console.log(d?.toJSON())
+
+console.log(world.toJSON())

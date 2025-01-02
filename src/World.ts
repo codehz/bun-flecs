@@ -87,6 +87,17 @@ export class World {
     };
   }
 
+  toJSON(): {
+    parent?: string;
+    name?: string;
+    id: number;
+    pairs?: Record<string, string>;
+    components?: Record<string, any>;
+  }[] {
+    return JSON.parse(symbols.ecs_world_to_json_js(null, this.native) as string)
+      .results;
+  }
+
   [Symbol.dispose]() {
     symbols.ecs_fini(this.native);
   }
