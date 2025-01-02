@@ -87,14 +87,7 @@ export class World {
     };
   }
 
-  toJSON(): {
-    parent?: string;
-    name?: string;
-    id: number;
-    tags?: string[];
-    pairs?: Record<string, string>;
-    components?: Record<string, any>;
-  }[] {
+  toJSON(): EntityDump[] {
     return JSON.parse(symbols.ecs_world_to_json_js(null, this.native) as string)
       .results;
   }
@@ -102,4 +95,13 @@ export class World {
   [Symbol.dispose]() {
     symbols.ecs_fini(this.native);
   }
+}
+
+export type EntityDump = {
+  parent?: string;
+  name?: string;
+  id: number;
+  tags?: string[];
+  pairs?: Record<string, string>;
+  components?: Record<string, any>;
 }
