@@ -407,5 +407,6 @@ napi_value ecs_world_to_json_js(napi_env env, ecs_world_t *world) {
   char *json = ecs_world_to_json(world, &desc);
   napi_value result;
   napi_create_string_utf8(env, json, NAPI_AUTO_LENGTH, &result);
+  ecs_os_free(json);
   return result;
 }
