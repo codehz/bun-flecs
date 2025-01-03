@@ -100,8 +100,6 @@ export class Entity implements Disposable {
         return symbols.ecs_get_mut_id(this.world, this.native, id);
       case GetIdMode.ENSURE:
         return symbols.ecs_ensure_id(this.world, this.native, id);
-      case GetIdMode.MODIFIED:
-        return symbols.ecs_modified_id(this.world, this.native, id);
       case GetIdMode.ENSURE_MODIFIED:
         return symbols.ecs_ensure_modified_id(this.world, this.native, id);
     }
@@ -204,6 +202,5 @@ export enum GetIdMode {
   DEFAULT = 0,
   MUTABLE = 1,
   ENSURE = 2,
-  MODIFIED = 4,
-  ENSURE_MODIFIED = 6,
+  ENSURE_MODIFIED = 3,
 }

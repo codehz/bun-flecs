@@ -24,7 +24,6 @@ const { symbols } = dlopen(lib, {
   ecs_get_id: { args: ["ptr", "u64", "u64"], returns: "ptr" },
   ecs_get_mut_id: { args: ["ptr", "u64", "u64"], returns: "ptr" },
   ecs_ensure_id: { args: ["ptr", "u64", "u64"], returns: "ptr" },
-  ecs_modified_id: { args: ["ptr", "u64", "u64"], returns: "ptr" },
   ecs_ensure_modified_id: { args: ["ptr", "u64", "u64"], returns: "ptr" },
 
   ecs_get_type_js: { args: ["napi_env", "ptr", "u64"], returns: "napi_value" },
