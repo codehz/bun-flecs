@@ -52,15 +52,13 @@ export class World {
   lookup(path: string) {
     const buffer = utf8(path);
     const id = symbols.ecs_lookup(this.native, buffer);
-    if (id) return new Entity(this.native, id);
-    else return null;
+    return id ? new Entity(this.native, id) : null;
   }
 
   lookupSymbol(symbol: string) {
     const buffer = utf8(symbol);
     const id = symbols.ecs_lookup_symbol(this.native, buffer);
-    if (id) return new Entity(this.native, id);
-    else return null;
+    return id ? new Entity(this.native, id) : null;
   }
 
   parse(code: string, name = "<input>"): Script {
@@ -104,4 +102,4 @@ export type EntityDump = {
   tags?: string[];
   pairs?: Record<string, string>;
   components?: Record<string, any>;
-}
+};
