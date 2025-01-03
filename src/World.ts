@@ -23,7 +23,7 @@ export class World implements Disposable {
     if (!this.native) throw new Error("failed to init ecs world");
   }
 
-  tick(frame: number) {
+  progress(frame: number) {
     return symbols.ecs_progress(this.native, frame);
   }
 
