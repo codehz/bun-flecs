@@ -1,7 +1,7 @@
 import type { Pointer } from "bun:ffi";
 import symbols from "./symbols";
 
-export class Entity {
+export class Entity implements Disposable {
   constructor(readonly world: Pointer, readonly native: bigint) {}
 
   get name() {

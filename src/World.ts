@@ -3,12 +3,11 @@ import { ScriptedEntity } from "./ScriptedEntity";
 import symbols from "./symbols";
 import { utf8 } from "./utils";
 
-export type Script = {
+export interface Script extends Disposable {
   eval(vars?: Record<string, boolean | number | string>): void;
-  [Symbol.dispose](): void;
-};
+}
 
-export type Query = {
+export interface Query extends Disposable {
   exec<T extends unknown>(options?: {
     variables?: Record<string, string | bigint | Entity>;
     table?: boolean;
@@ -16,10 +15,9 @@ export type Query = {
     inherited?: boolean;
     matches?: boolean;
   }): T[];
-  [Symbol.dispose](): void;
 };
 
-export class World {
+export class World implements Disposable {
   readonly native = symbols.ecs_init()!;
   constructor() {
     if (!this.native) throw new Error("failed to init ecs world");
