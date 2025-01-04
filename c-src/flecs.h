@@ -18233,7 +18233,7 @@ struct enum_data {
      * @return int The index of the enum value.
      */
     int index_by_value(U value) const {
-        if (!impl_.max) {
+        if (impl_.max < 0) {
             return -1;
         }
         // Check if value is in contiguous lookup section
@@ -22932,7 +22932,7 @@ struct untyped_field {
      * @return Reference to element.
      */
     void* operator[](size_t index) const {
-        ecs_assert(!is_shared_, ECS_INVALID_PARAMETER,
+        ecs_assert(!is_shared_ || !index, ECS_INVALID_PARAMETER,
             "invalid usage of [] operator for shared component field");
         ecs_assert(index < count_, ECS_COLUMN_INDEX_OUT_OF_RANGE,
             "index %d out of range for field", index);
@@ -23249,6 +23249,10 @@ public:
      * If the specified field index does not match with the provided type, the
      * function will assert.
      *
+     * This function should not be used in each() callbacks, unless it is to
+     * access a shared field. For access to non-shared fields in each(), use
+     * field_at.
+     *
      * @tparam T Type of the field.
      * @param index The field index.
      * @return The field data.
@@ -23260,6 +23264,10 @@ public:
     /** Get read/write access to field data.
      * If the matched id for the specified field does not match with the provided
      * type or if the field is readonly, the function will assert.
+     *
+     * This function should not be used in each() callbacks, unless it is to
+     * access a shared field. For access to non-shared fields in each(), use
+     * field_at.
      *
      * @tparam T Type of the field.
      * @param index The field index.
@@ -23274,15 +23282,22 @@ public:
      * Unchecked access is required when a system does not know the type of a
      * field at compile time.
      *
+     * This function should not be used in each() callbacks, unless it is to
+     * access a shared field. For access to non-shared fields in each(), use
+     * field_at.
+     *
      * @param index The field index.
      */
     flecs::untyped_field field(int8_t index) const {
-        ecs_assert(!(iter_->flags & EcsIterCppEach), ECS_INVALID_OPERATION,
+        ecs_assert(!(iter_->flags & EcsIterCppEach) ||
+               ecs_field_src(iter_, index) != 0, ECS_INVALID_OPERATION,
             "cannot .field from .each, use .field_at(%d, row) instead", index);
         return get_unchecked_field(index);
     }
 
-    /** Get pointer to field at row. */
+    /** Get pointer to field at row.
+     * This function may be used to access shared fields when row is set to 0.
+     */
     void* field_at(int8_t index, size_t row) const {
         if (iter_->row_fields & (1llu << index)) {
             return get_unchecked_field_at(index, row)[0];
@@ -23291,7 +23306,9 @@ public:
         }
     }
 
-    /** Get reference to field at row. */
+    /** Get reference to field at row.
+     * This function may be used to access shared fields when row is set to 0.
+     */
     template <typename T, typename A = actual_type_t<T>,
         typename std::enable_if<std::is_const<T>::value, void>::type* = nullptr>
     const A& field_at(int8_t index, size_t row) const {
@@ -23302,7 +23319,9 @@ public:
         }
     }
 
-    /** Get reference to field at row. */
+    /** Get reference to field at row.
+     * This function may be used to access shared fields when row is set to 0.
+     */
     template <typename T, typename A = actual_type_t<T>,
         typename std::enable_if<
             std::is_const<T>::value == false, void>::type* = nullptr>
@@ -33076,8 +33095,9 @@ inline flecs::table_range iter::range() const {
 template <typename T, typename A,
     typename std::enable_if<std::is_const<T>::value, void>::type*>
 inline flecs::field<A> iter::field(int8_t index) const {
-    ecs_assert(!(iter_->flags & EcsIterCppEach), ECS_INVALID_OPERATION,
-        "cannot .field from .each, use .field_at<const %s>(%d, row) instead",
+    ecs_assert(!(iter_->flags & EcsIterCppEach) ||
+               ecs_field_src(iter_, index) != 0, ECS_INVALID_OPERATION,
+        "cannot .field from .each, use .field_at<%s>(%d, row) instead",
             _::type_name<T>(), index);
     return get_field<A>(index);
 }
@@ -33086,7 +33106,8 @@ template <typename T, typename A,
     typename std::enable_if<
         std::is_const<T>::value == false, void>::type*>
 inline flecs::field<A> iter::field(int8_t index) const {
-    ecs_assert(!(iter_->flags & EcsIterCppEach), ECS_INVALID_OPERATION,
+    ecs_assert(!(iter_->flags & EcsIterCppEach) ||
+               ecs_field_src(iter_, index) != 0, ECS_INVALID_OPERATION,
         "cannot .field from .each, use .field_at<%s>(%d, row) instead",
             _::type_name<T>(), index);
     ecs_assert(!ecs_field_is_readonly(iter_, index),
