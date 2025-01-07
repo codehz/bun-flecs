@@ -13002,6 +13002,9 @@ char* flecs_load_from_file(
 
     return content;
 error:
+    if (file) {
+        fclose(file);
+    }
     ecs_os_free(content);
     return NULL;
 }
@@ -22355,7 +22358,7 @@ ecs_entity_t ecs_cpp_enum_constant_register(
 
     if (ecs_should_log(0)) {
         ecs_value_t v = { .type = value_type, .ptr = value };
-        char *str;
+        char *str = NULL;
         ecs_meta_cursor_t cur = ecs_meta_cursor(world,
             ecs_id(ecs_string_t), &str);
         ecs_meta_set_value(&cur, &v);
@@ -35668,6 +35671,8 @@ int flecs_query_finalize_terms(
             ECS_TERMSET_SET(q->var_fields, 1u << term->field_index);
         }
 
+        bool is_sparse = false;
+
         ecs_id_record_t *idr = flecs_id_record_get(world, term->id);
         if (idr) {
             if (ecs_os_has_threading()) {
@@ -35679,17 +35684,26 @@ int flecs_query_finalize_terms(
             term->flags_ |= EcsTermKeepAlive;
 
             if (idr->flags & EcsIdIsSparse) {
-                term->flags_ |= EcsTermIsSparse;
-                ECS_BIT_CLEAR16(term->flags_, EcsTermIsTrivial);
-                if (term->flags_ & EcsTermIsCacheable) {
-                    cacheable_terms --;
-                    ECS_BIT_CLEAR16(term->flags_, EcsTermIsCacheable);
-                }
+                is_sparse = true;
+            }
+        } else {
+            ecs_entity_t type = ecs_get_typeid(world, term->id);
+            if (type && ecs_has_id(world, type, EcsSparse)) {
+                is_sparse = true;
+            }
+        }
 
-                /* Sparse component fields must be accessed with ecs_field_at */
-                if (!nodata_term) {
-                    q->row_fields |= flecs_uto(uint32_t, 1llu << i);
-                }
+        if (is_sparse) {
+            term->flags_ |= EcsTermIsSparse;
+            ECS_BIT_CLEAR16(term->flags_, EcsTermIsTrivial);
+            if (term->flags_ & EcsTermIsCacheable) {
+                cacheable_terms --;
+                ECS_BIT_CLEAR16(term->flags_, EcsTermIsCacheable);
+            }
+
+            /* Sparse component fields must be accessed with ecs_field_at */
+            if (!nodata_term) {
+                q->row_fields |= flecs_uto(uint32_t, 1llu << i);
             }
         }
 
@@ -37598,6 +37612,7 @@ void flecs_table_emit(
     ecs_table_t *table,
     ecs_entity_t event)
 {
+    ecs_defer_begin(world);
     flecs_emit(world, world, 0, &(ecs_event_desc_t) {
         .ids = &table->type,
         .event = event,
@@ -37605,6 +37620,7 @@ void flecs_table_emit(
         .flags = EcsEventTableOnly,
         .observable = world
     });
+    ecs_defer_end(world);
 }
 
 /* Main table initialization function */
@@ -61091,7 +61107,7 @@ int flecs_script_check_component(
             }
         }
 
-        ecs_entity_t expr_type = node->id.eval;
+        ecs_entity_t expr_type = ti->component;
         if (flecs_script_check_expr(v, &node->expr, &expr_type)) {
             return -1;
         }
@@ -69649,6 +69665,7 @@ void flecs_query_update_node_up_trs(
         const ecs_query_impl_t *impl = ctx->query;
         const ecs_query_t *q = &impl->pub;
         ecs_query_cache_t *cache = impl->cache;
+        int8_t *field_map = cache->field_map;
         int32_t i, field_count = q->field_count;
         for (i = 0; i < field_count; i ++) {
             if (!(fields & (1llu << i))) {
@@ -69663,10 +69680,11 @@ void flecs_query_update_node_up_trs(
                 ecs_assert(r->table != NULL, ECS_INTERNAL_ERROR, NULL);
                 if (r->table != tr->hdr.table) {
                     ecs_id_record_t *idr = (ecs_id_record_t*)tr->hdr.cache;
-                    ecs_assert(idr->id == q->ids[i], ECS_INTERNAL_ERROR, NULL);
+                    ecs_assert(idr->id == q->ids[field_map ? field_map[i] : i],
+                        ECS_INTERNAL_ERROR, NULL);
                     tr = node->trs[i] = flecs_id_record_get_table(idr, r->table);
-                    if (cache->field_map) {
-                        ctx->it->trs[cache->field_map[i]] = tr;
+                    if (field_map) {
+                        ctx->it->trs[field_map[i]] = tr;
                     }
                 }
             }
@@ -80487,6 +80505,7 @@ int flecs_expr_initializer_visit_type(
     if (flecs_expr_initializer_collection_check(script, node, cur)) {
         goto error;
     }
+
 
     ecs_expr_initializer_element_t *elems = ecs_vec_first(&node->elements);
     int32_t i, count = ecs_vec_count(&node->elements);
