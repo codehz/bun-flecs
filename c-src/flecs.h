@@ -33,7 +33,7 @@
 /* Flecs version macros */
 #define FLECS_VERSION_MAJOR 4  /**< Flecs major version. */
 #define FLECS_VERSION_MINOR 0  /**< Flecs minor version. */
-#define FLECS_VERSION_PATCH 3  /**< Flecs patch version. */
+#define FLECS_VERSION_PATCH 4  /**< Flecs patch version. */
 
 /** Flecs version. */
 #define FLECS_VERSION FLECS_VERSION_IMPL(\
@@ -26541,7 +26541,7 @@ struct each_ref_field : public each_field<T> {
 
         if (field.is_row) {
             field.ptr = ecs_field_at_w_size(iter, sizeof(T), field.index,
-                static_cast<int8_t>(row));
+                static_cast<int32_t>(row));
         }
     }
 };

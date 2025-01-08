@@ -10476,24 +10476,26 @@ void flecs_cmd_batch_for_entity(
             ecs_id_t *ids = diff->added.array;
             uint8_t added_index = flecs_ito(uint8_t, diff->added.count);
 
-            table = flecs_find_table_add(world, table, id, diff);
-
-            if (diff->added.count == (added_index + 1)) {
-                /* Single id was added, must be at the end of the array */
-                ecs_assert(ids[added_index] == id, ECS_INTERNAL_ERROR, NULL);
-                set_mask |= (1llu << added_index);
-            } else {
-                /* Id was already added or multiple ids got added. Do a linear
-                 * search to find the index we need to set the set_mask. */
-                int32_t i;
-                for (i = 0; i < diff->added.count; i ++) {
-                    if (ids[i] == id) {
-                        break;
+            ecs_table_t *next = flecs_find_table_add(world, table, id, diff);
+            if (next != table) {
+                table = next;
+                if (diff->added.count == (added_index + 1)) {
+                    /* Single id was added, must be at the end of the array */
+                    ecs_assert(ids[added_index] == id, ECS_INTERNAL_ERROR, NULL);
+                    set_mask |= (1llu << added_index);
+                } else {
+                    /* Id was already added or multiple ids got added. Do a linear
+                    * search to find the index we need to set the set_mask. */
+                    int32_t i;
+                    for (i = 0; i < diff->added.count; i ++) {
+                        if (ids[i] == id) {
+                            break;
+                        }
                     }
-                }
 
-                ecs_assert(i != diff->added.count, ECS_INTERNAL_ERROR, NULL);
-                set_mask |= (1llu << i);
+                    ecs_assert(i != diff->added.count, ECS_INTERNAL_ERROR, NULL);
+                    set_mask |= (1llu << i);
+                }
             }
 
             world->info.cmd.batched_command_count ++;
@@ -70291,7 +70293,7 @@ bool flecs_query_get_fixed_monitor(
     bool check)
 {
     ecs_query_t *q = &impl->pub;
-    ecs_world_t *world = q->world;
+    ecs_world_t *world = q->real_world;
     ecs_term_t *terms = q->terms;
     int32_t i, term_count = q->term_count;
 
@@ -70558,7 +70560,7 @@ void flecs_query_mark_fields_dirty(
         return;
     }
 
-    ecs_world_t *world = q->world;
+    ecs_world_t *world = q->real_world;
     int16_t i, field_count = q->field_count;
     for (i = 0; i < field_count; i ++) {
         ecs_termset_t field_bit = (ecs_termset_t)(1u << i);
@@ -70609,7 +70611,7 @@ void flecs_query_mark_fixed_fields_dirty(
         return;
     }
 
-    ecs_world_t *world = q->world;
+    ecs_world_t *world = q->real_world;
     int32_t i, field_count = q->field_count;
     for (i = 0; i < field_count; i ++) {
         if (!(fixed_write_fields & flecs_ito(uint32_t, 1 << i))) {
@@ -70673,6 +70675,9 @@ void flecs_query_sync_match_monitor(
             }
 
             flecs_query_get_column_for_field(q, match, field, &tc);
+
+            /* Query for cache should never point to stage */
+            ecs_assert(q->world == q->real_world, ECS_INTERNAL_ERROR, NULL);
 
             monitor[field + 1] = flecs_table_get_dirty_state(
                 q->world, tc.table)[tc.column + 1];
