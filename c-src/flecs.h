@@ -3733,8 +3733,9 @@ struct ecs_ref_t {
     ecs_entity_t entity;    /* Entity */
     ecs_entity_t id;        /* Component id */
     uint64_t table_id;      /* Table id for detecting ABA issues */
-    struct ecs_table_record_t *tr; /* Table record for component */
+    uint32_t table_version; /* Table version for detecting changes */
     ecs_record_t *record;   /* Entity index record */
+    void *ptr;              /* Cached component pointer */
 };
 
 
@@ -5821,17 +5822,11 @@ void ecs_run_aperiodic(
 
 /** Used with ecs_delete_empty_tables(). */
 typedef struct ecs_delete_empty_tables_desc_t {
-    /** Optional component filter for the tables to evaluate. */
-    ecs_id_t id;
-
     /** Free table data when generation > clear_generation. */
     uint16_t clear_generation;
 
     /** Delete table when generation > delete_generation. */
     uint16_t delete_generation;
-
-    /** Minimum number of component ids the table should have. */
-    int32_t min_id_count;
 
     /** Amount of time operation is allowed to spend. */
     double time_budget_seconds;
@@ -18050,8 +18045,10 @@ struct enum_reflection {
     static constexpr U each_enum(Args... args) {
         return each_mask_range<Value, high_bit>(each_enum_range<0, Value>(0, args...), args...);
     }
-
-    static const U high_bit = static_cast<U>(1) << (sizeof(U) * 8 - 1);
+    /* to avoid warnings with bit manipulation, calculate the high bit with an
+       unsigned type of the same size: */
+    using UU = typename std::make_unsigned<U>::type;
+    static const U high_bit = static_cast<U>(static_cast<UU>(1) << (sizeof(UU) * 8 - 1));
 };
 
 /** Enumeration type data */
@@ -25506,20 +25503,6 @@ struct entity_builder : entity_view {
      * Emplace constructs a component in the storage, which prevents calling the
      * destructor on the value passed into the function.
      *
-     * Emplace attempts the following signatures to construct the component:
-     *
-     * @code
-     * T{Args...}
-     * T{flecs::entity, Args...}
-     * @endcode
-     *
-     * If the second signature matches, emplace will pass in the current entity
-     * as argument to the constructor, which is useful if the component needs
-     * to be aware of the entity to which it has been added.
-     *
-     * Emplace may only be called for components that have not yet been added
-     * to the entity.
-     *
      * @tparam T the component to emplace
      * @param args The arguments to pass to the constructor of T
      */
@@ -26203,6 +26186,30 @@ struct entity : entity_builder<entity>
         ecs_modified_id(world_, id_, comp);
     }
 
+    /** Get reference to component specified by id.
+     * A reference allows for quick and safe access to a component value, and is
+     * a faster alternative to repeatedly calling 'get' for the same component.
+     *
+     * The method accepts a component id argument, which can be used to create a
+     * ref to a component that is different from the provided type. This allows
+     * for creating a base type ref that points to a derived type:
+     *
+     * @code
+     * flecs::ref<Base> r = e.get_ref<Base>(world.id<Derived>());
+     * @endcode
+     *
+     * If the provided component id is not binary compatible with the specified
+     * type, the behavior is undefined.
+     *
+     * @tparam T component for which to get a reference.
+     * @return The reference.
+     */
+    template <typename T, if_t< is_actual<T>::value > = 0>
+    ref<T> get_ref_w_id(flecs::id_t component) const {
+        _::type<T>::id(world_); // ensure type is registered
+        return ref<T>(world_, id_, component);
+    }
+
     /** Get reference to component.
      * A reference allows for quick and safe access to a component value, and is
      * a faster alternative to repeatedly calling 'get' for the same component.
@@ -26627,6 +26634,8 @@ private:
     static void invoke_callback(
         ecs_iter_t *iter, const Func& func, size_t i, Args... comps)
     {
+        ecs_assert(iter->entities != nullptr, ECS_INVALID_PARAMETER,
+            "query does not return entities ($this variable is not populated)");
         func(flecs::entity(iter->world, iter->entities[i]),
             (ColumnType< remove_reference_t<Components> >(iter, comps, i)
                 .get_row())...);
@@ -27372,7 +27381,7 @@ struct type_impl {
     // Register component id.
     static entity_t register_id(world_t *world,
         const char *name = nullptr, bool allow_tag = true, flecs::id_t id = 0,
-        bool is_component = false, bool implicit_name = true, const char *n = nullptr,
+        bool is_component = true, bool implicit_name = true, const char *n = nullptr,
         flecs::entity_t module = 0)
     {
         if (!s_index) {
@@ -28118,9 +28127,12 @@ struct ref {
             id = _::type<T>::id(world);
         }
 
-        ecs_assert(_::type<T>::size() != 0, ECS_INVALID_PARAMETER,
-            "operation invalid for empty type");
-
+#ifdef FLECS_DEBUG
+        flecs::entity_t type = ecs_get_typeid(world, id);
+        const flecs::type_info_t *ti = ecs_get_type_info(world, type);
+        ecs_assert(ti && ti->size != 0, ECS_INVALID_PARAMETER,
+            "cannot create ref to empty type");
+#endif
         ref_ = ecs_ref_init_id(world_, entity, id);
     }
 
@@ -28159,7 +28171,11 @@ struct ref {
         return has();
     }
 
+    /** Return entity associated with reference. */
     flecs::entity entity() const;
+
+    /** Return component associated with reference. */
+    flecs::id component() const;
 
 private:
     world_t *world_;
@@ -29104,6 +29120,11 @@ flecs::entity ref<T>::entity() const {
     return flecs::entity(world_, ref_.entity);
 }
 
+template <typename T>
+flecs::id ref<T>::component() const {
+    return flecs::id(world_, ref_.id);
+}
+
 template <typename Self>
 template <typename Func>
 inline const Self& entity_builder<Self>::insert(const Func& func) const  {
@@ -29307,7 +29328,7 @@ inline flecs::entity world::entity(E value) const {
 
 template <typename T>
 inline flecs::entity world::entity(const char *name) const {
-    return flecs::entity(world_, _::type<T>::register_id(world_, name, true) );
+    return flecs::entity(world_, _::type<T>::register_id(world_, name, true, 0, false) );
 }
 
 template <typename... Args>
@@ -29319,7 +29340,7 @@ inline flecs::entity world::prefab(Args &&... args) const {
 
 template <typename T>
 inline flecs::entity world::prefab(const char *name) const {
-    flecs::entity result = flecs::component<T>(world_, name, true);
+    flecs::entity result = this->entity<T>(name);
     result.add(flecs::Prefab);
     return result;
 }
@@ -30531,12 +30552,19 @@ struct query_base {
 
     query_base(const query_base& obj) {
         this->query_ = obj.query_;
-        flecs_poly_claim(this->query_);
+        if (this->query_)
+        {
+            flecs_poly_claim(this->query_);
+        }
     }
 
     query_base& operator=(const query_base& obj) {
+        this->~query_base();
         this->query_ = obj.query_;
-        flecs_poly_claim(this->query_);
+        if (this->query_)
+        {
+            flecs_poly_claim(this->query_);
+        }
         return *this;
     }
 
