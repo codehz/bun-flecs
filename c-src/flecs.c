@@ -821,13 +821,6 @@ typedef struct ecs_cmd_t {
     ecs_entity_t system;             /* System that enqueued the command */
 } ecs_cmd_t;
 
-/* Data structures that store the command queue */
-typedef struct ecs_commands_t {
-    ecs_vec_t queue;
-    ecs_stack_t stack;          /* Temp memory used by deferred commands */
-    ecs_sparse_t entries;       /* <entity, op_entry_t> - command batching */
-} ecs_commands_t;
-
 /** Callback used to capture commands of a frame */
 typedef void (*ecs_on_commands_action_t)(
     const ecs_stage_t *stage,
@@ -2873,38 +2866,6 @@ void flecs_unregister_table(
 void flecs_delete_table(
     ecs_world_t *world,
     ecs_table_t *table);
-
-/* Suspend/resume readonly state. To fully support implicit registration of
- * components, it should be possible to register components while the world is
- * in readonly mode. It is not uncommon that a component is used first from
- * within a system, which are often ran while in readonly mode.
- *
- * Suspending readonly mode is only allowed when the world is not multithreaded.
- * When a world is multithreaded, it is not safe to (even temporarily) leave
- * readonly mode, so a multithreaded application should always explicitly
- * register components in advance.
- *
- * These operations also suspend deferred mode.
- */
-typedef struct ecs_suspend_readonly_state_t {
-    bool is_readonly;
-    bool is_deferred;
-    bool cmd_flushing;
-    int32_t defer_count;
-    ecs_entity_t scope;
-    ecs_entity_t with;
-    ecs_commands_t cmd_stack[2];
-    ecs_commands_t *cmd;
-    ecs_stage_t *stage;
-} ecs_suspend_readonly_state_t;
-
-ecs_world_t* flecs_suspend_readonly(
-    const ecs_world_t *world,
-    ecs_suspend_readonly_state_t *state);
-
-void flecs_resume_readonly(
-    ecs_world_t *world,
-    ecs_suspend_readonly_state_t *state);
 
 void flecs_increment_table_version(
     ecs_world_t *world,
@@ -10462,29 +10423,21 @@ void flecs_cmd_batch_for_entity(
         case EcsCmdSet:
         case EcsCmdEnsure: {
             ecs_id_t *ids = diff->added.array;
-            uint8_t added_index = flecs_ito(uint8_t, diff->added.count);
 
             ecs_table_t *next = flecs_find_table_add(world, table, id, diff);
             if (next != table) {
                 table = next;
-                if (diff->added.count == (added_index + 1)) {
-                    /* Single id was added, must be at the end of the array */
-                    ecs_assert(ids[added_index] == id, ECS_INTERNAL_ERROR, NULL);
-                    set_mask |= (1llu << added_index);
-                } else {
-                    /* Id was already added or multiple ids got added. Do a linear
-                    * search to find the index we need to set the set_mask. */
-                    int32_t i;
-                    for (i = 0; i < diff->added.count; i ++) {
-                        if (ids[i] == id) {
-                            break;
-                        }
-                    }
+            }
 
-                    ecs_assert(i != diff->added.count, ECS_INTERNAL_ERROR, NULL);
-                    set_mask |= (1llu << i);
+            /* Find id in added array so we can set the bit in the set_mask */
+            int32_t i;
+            for (i = 0; i < diff->added.count; i ++) {
+                if (ids[i] == id) {
+                    break;
                 }
             }
+
+            set_mask |= (1llu << i);
 
             world->info.cmd.batched_command_count ++;
             break;
