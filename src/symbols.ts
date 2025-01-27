@@ -8,6 +8,11 @@ const { symbols } = dlopen(lib, {
   ecs_quit: { args: ["ptr"] },
   ecs_progress: { args: ["ptr", "float"], returns: "bool" },
 
+  ecs_defer_begin: { args: ["ptr"], returns: "bool" },
+  ecs_defer_end: { args: ["ptr"], returns: "bool" },
+  ecs_defer_suspend: { args: ["ptr"], returns: "bool" },
+  ecs_defer_resume: { args: ["ptr"], returns: "bool" },
+
   ecs_new: { args: ["ptr"], returns: "u64" },
   ecs_delete: { args: ["ptr", "u64"] },
   ecs_add_id: { args: ["ptr", "u64", "u64"] },

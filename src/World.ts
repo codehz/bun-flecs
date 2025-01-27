@@ -2,6 +2,7 @@ import { Entity } from "./Entity";
 import { ScriptedEntity } from "./ScriptedEntity";
 import symbols from "./symbols";
 import { utf8 } from "./utils";
+import type { Pointer } from "bun:ffi";
 
 export interface Script extends Disposable {
   eval(vars?: Record<string, boolean | number | string>): void;
@@ -15,7 +16,7 @@ export interface Query extends Disposable {
     inherited?: boolean;
     matches?: boolean;
   }): T[];
-};
+}
 
 export class World implements Disposable {
   readonly native = symbols.ecs_init()!;
@@ -83,6 +84,10 @@ export class World implements Disposable {
     };
   }
 
+  defer() {
+    return new Defer(this.native);
+  }
+
   toJSON(): EntityDump[] {
     return JSON.parse(symbols.ecs_world_to_json_js(null, this.native) as string)
       .results;
@@ -92,6 +97,31 @@ export class World implements Disposable {
     symbols.ecs_fini(this.native);
   }
 }
+
+class Defer {
+  constructor(private native: Pointer) {
+    symbols.ecs_defer_begin(this.native);
+  }
+
+  suspend() {
+    return new DeferSuspend(this.native);
+  }
+
+  [Symbol.dispose]() {
+    symbols.ecs_defer_end(this.native);
+  }
+}
+
+class DeferSuspend {
+  constructor(private native: Pointer) {
+    symbols.ecs_defer_suspend(this.native);
+  }
+  [Symbol.dispose]() {
+    symbols.ecs_defer_resume(this.native);
+  }
+}
+
+export type { Defer, DeferSuspend };
 
 export type EntityDump = {
   parent?: string;
