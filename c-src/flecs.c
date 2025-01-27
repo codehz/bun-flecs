@@ -1641,6 +1641,7 @@ struct ecs_query_cache_table_match_t {
     const ecs_table_record_t **trs;  /* Information about where to find field in table */
     ecs_id_t *ids;                   /* Resolved (component) ids for current table */
     ecs_entity_t *sources;           /* Subjects (sources) of ids */
+    ecs_table_t **tables;            /* Tables for fields with non-$this source */
     ecs_termset_t set_fields;        /* Fields that are set */
     ecs_termset_t up_fields;         /* Fields that are matched through traversal */
     uint64_t group_id;               /* Value used to organize tables in groups */
@@ -1680,9 +1681,8 @@ typedef struct ecs_query_cache_event_t {
 
 /* Query level block allocators have sizes that depend on query field count */
 typedef struct ecs_query_cache_allocators_t {
-    ecs_block_allocator_t trs;
+    ecs_block_allocator_t pointers;
     ecs_block_allocator_t ids;
-    ecs_block_allocator_t sources;
     ecs_block_allocator_t monitors;
 } ecs_query_cache_allocators_t;
 
@@ -6065,9 +6065,11 @@ void flecs_instantiate(
                 ecs_entity_t rel = ECS_PAIR_FIRST(id);
                 ecs_entity_t tgt = ecs_get_target(world, base, rel, 0);
                 ecs_assert(tgt != 0, ECS_INTERNAL_ERROR, NULL);
+                ecs_id_record_t *idr =
+                    (ecs_id_record_t*)base_table->_->records[i].hdr.cache;
 
                 for (j = row; j < (row + count); j ++) {
-                    ecs_add_pair(world, entities[j], rel, tgt);
+                    flecs_switch_set(idr->sparse, (uint32_t)entities[j], tgt);
                 }
 
                 union_count ++;
@@ -56178,7 +56180,6 @@ FLECS_MATH_FUNC_F64(round, round(x))
 
 FLECS_MATH_FUNC_F64(abs, fabs(x))
 
-FLECS_API
 void FlecsScriptMathImport(
     ecs_world_t *world)
 {
@@ -68761,7 +68762,7 @@ ecs_query_cache_table_match_t* flecs_query_cache_add_table_match(
         cache->query->world, qt);
 
     qm->table = table;
-    qm->trs = flecs_balloc(&cache->allocators.trs);
+    qm->trs = flecs_balloc(&cache->allocators.pointers);
 
     /* Insert match to iteration list if table is not empty */
     flecs_query_cache_insert_table_node(cache, qm);
@@ -68813,13 +68814,25 @@ void flecs_query_cache_set_table_match(
 
     if (i != field_count) {
         if (qm->sources == cache->sources || !qm->sources) {
-            qm->sources = flecs_balloc(&cache->allocators.sources);
+            qm->sources = flecs_balloc(&cache->allocators.ids);
         }
         ecs_os_memcpy_n(qm->sources, it->sources, ecs_entity_t, field_count);
+        if (!qm->tables) {
+            qm->tables = flecs_balloc(&cache->allocators.pointers);
+        }
+        for (i = 0; i < field_count; i ++) {
+            if (it->trs[i]) {
+                qm->tables[i] = it->trs[i]->hdr.table;
+            }
+        }
     } else {
         if (qm->sources != cache->sources) {
-            flecs_bfree(&cache->allocators.sources, qm->sources);
+            flecs_bfree(&cache->allocators.ids, qm->sources);
             qm->sources = cache->sources;
+        }
+        if (qm->tables) {
+            flecs_bfree(&cache->allocators.pointers, qm->tables);
+            qm->tables = NULL;
         }
     }
 
@@ -69027,14 +69040,18 @@ void flecs_query_cache_table_match_free(
     ecs_world_t *world = cache->query->world;
 
     for (cur = first; cur != NULL; cur = next) {
-        flecs_bfree(&cache->allocators.trs, ECS_CONST_CAST(void*, cur->trs));
+        flecs_bfree(&cache->allocators.pointers, ECS_CONST_CAST(void*, cur->trs));
 
         if (cur->ids != cache->query->ids) {
             flecs_bfree(&cache->allocators.ids, cur->ids);
         }
 
         if (cur->sources != cache->sources) {
-            flecs_bfree(&cache->allocators.sources, cur->sources);
+            flecs_bfree(&cache->allocators.ids, cur->sources);
+        }
+
+        if (cur->tables) {
+            flecs_bfree(&cache->allocators.pointers, cur->tables);
         }
 
         if (cur->monitor) {
@@ -69355,12 +69372,10 @@ void flecs_query_cache_allocators_init(
 {
     int32_t field_count = cache->query->field_count;
     if (field_count) {
-        flecs_ballocator_init(&cache->allocators.trs,
+        flecs_ballocator_init(&cache->allocators.pointers,
             field_count * ECS_SIZEOF(ecs_table_record_t*));
         flecs_ballocator_init(&cache->allocators.ids,
             field_count * ECS_SIZEOF(ecs_id_t));
-        flecs_ballocator_init(&cache->allocators.sources,
-            field_count * ECS_SIZEOF(ecs_entity_t));
         flecs_ballocator_init(&cache->allocators.monitors,
             (1 + field_count) * ECS_SIZEOF(int32_t));
     }
@@ -69372,9 +69387,8 @@ void flecs_query_cache_allocators_fini(
 {
     int32_t field_count = cache->query->field_count;
     if (field_count) {
-        flecs_ballocator_fini(&cache->allocators.trs);
+        flecs_ballocator_fini(&cache->allocators.pointers);
         flecs_ballocator_fini(&cache->allocators.ids);
-        flecs_ballocator_fini(&cache->allocators.sources);
         flecs_ballocator_fini(&cache->allocators.monitors);
     }
 }
@@ -69419,7 +69433,7 @@ void flecs_query_cache_fini(
     ecs_vec_fini_t(NULL, &cache->table_slices, ecs_query_cache_table_match_t);
 
     if (cache->query->term_count) {
-        flecs_bfree(&cache->allocators.sources, cache->sources);
+        flecs_bfree(&cache->allocators.ids, cache->sources);
     }
 
     flecs_query_cache_allocators_fini(cache);
@@ -69498,7 +69512,7 @@ ecs_query_cache_t* flecs_query_cache_init(
      * This reduces the amount of memory used by the cache, and improves CPU
      * cache locality during iteration when doing source checks. */
     if (result->query->term_count) {
-        result->sources = flecs_bcalloc(&result->allocators.sources);
+        result->sources = flecs_bcalloc(&result->allocators.ids);
     }
 
     if (q->term_count) {
@@ -69667,29 +69681,27 @@ void flecs_query_update_node_up_trs(
     ecs_termset_t fields = node->up_fields & node->set_fields;
     if (fields) {
         const ecs_query_impl_t *impl = ctx->query;
-        const ecs_query_t *q = &impl->pub;
         ecs_query_cache_t *cache = impl->cache;
+        const ecs_query_t *q = cache->query;
+        int32_t f, field_count = q->field_count;
         int8_t *field_map = cache->field_map;
-        int32_t i, field_count = q->field_count;
-        for (i = 0; i < field_count; i ++) {
-            if (!(fields & (1llu << i))) {
+        for (f = 0; f < field_count; f ++) {
+            if (!(fields & (1llu << f))) {
                 continue;
             }
 
-            ecs_entity_t src = node->sources[i];
+            ecs_entity_t src = node->sources[f];
             if (src) {
-                const ecs_table_record_t *tr = node->trs[i];
                 ecs_record_t *r = flecs_entities_get(ctx->world, src);
                 ecs_assert(r != NULL, ECS_INTERNAL_ERROR, NULL);
                 ecs_assert(r->table != NULL, ECS_INTERNAL_ERROR, NULL);
-                if (r->table != tr->hdr.table) {
-                    ecs_id_record_t *idr = (ecs_id_record_t*)tr->hdr.cache;
-                    ecs_assert(idr->id == q->ids[field_map ? field_map[i] : i],
-                        ECS_INTERNAL_ERROR, NULL);
-                    tr = node->trs[i] = flecs_id_record_get_table(idr, r->table);
-                    if (field_map) {
-                        ctx->it->trs[field_map[i]] = tr;
-                    }
+                if (r->table != node->tables[f]) {
+                    ecs_id_record_t *idr = flecs_id_record_get(
+                        ctx->world, q->ids[f]);
+                    const ecs_table_record_t *tr = node->trs[f] =
+                        flecs_id_record_get_table(idr, r->table);
+                    ecs_assert(tr != NULL, ECS_INTERNAL_ERROR, NULL);
+                    ctx->it->trs[field_map ? field_map[f] : f] = tr;
                 }
             }
         }
@@ -76733,7 +76745,6 @@ error:
     return -1;
 }
 
-FLECS_API
 const char* ecs_expr_run(
     ecs_world_t *world,
     const char *expr,
@@ -76771,7 +76782,6 @@ error:
     return NULL;
 }
 
-FLECS_API
 char* ecs_script_string_interpolate(
     ecs_world_t *world,
     const char *str,
